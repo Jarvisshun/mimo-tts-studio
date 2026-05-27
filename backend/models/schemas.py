@@ -17,6 +17,8 @@ class TTSRequest(BaseModel):
     format: AudioFormat = Field(default=AudioFormat.wav)
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     emotion: Optional[str] = None
+    voice_type: Optional[str] = None  # 'clone' or 'design' — triggers different model
+    voice_description: Optional[str] = None  # for voice_type='design'
 
 
 class VoiceDesignRequest(BaseModel):

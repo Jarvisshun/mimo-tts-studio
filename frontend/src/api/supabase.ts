@@ -255,6 +255,132 @@ export async function pullProviders(userId: string): Promise<Record<string, unkn
   return data || []
 }
 
+// === Marketplace: shared_voices ===
+
+export interface SharedVoice {
+  id: string
+  author_id: string
+  author_name: string
+  name: string
+  description: string
+  type: 'clone' | 'design'
+  voice_config: Record<string, unknown>
+  preview_audio_url: string
+  category: 'female' | 'male' | 'child' | 'special' | 'other'
+  tags: string[]
+  downloads: number
+  likes: number
+  created_at: string
+  is_featured: boolean
+}
+
+export async function fetchMarketplaceVoices(options?: {
+  category?: string
+  search?: string
+  sort?: 'hot' | 'new' | 'featured'
+  page?: number
+  limit?: number
+}): Promise<{ voices: SharedVoice[]; total: number }> {
+  if (!supabase) return { voices: [], total: 0 }
+  const { category, search, sort = 'hot', page = 1, limit = 20 } = options || {}
+  const offset = (page - 1) * limit
+
+  let query = supabase.from('shared_voices').select('*', { count: 'exact' })
+
+  if (category && category !== 'all') {
+    query = query.eq('category', category)
+  }
+  if (search) {
+    query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`)
+  }
+
+  switch (sort) {
+    case 'new':
+      query = query.order('created_at', { ascending: false })
+      break
+    case 'featured':
+      query = query.eq('is_featured', true).order('created_at', { ascending: false })
+      break
+    case 'hot':
+    default:
+      query = query.order('likes', { ascending: false })
+      break
+  }
+
+  query = query.range(offset, offset + limit - 1)
+
+  const { data, error, count } = await query
+  if (error) {
+    console.error('fetchMarketplaceVoices error:', error.message)
+    return { voices: [], total: 0 }
+  }
+  return { voices: data || [], total: count || 0 }
+}
+
+export async function publishVoice(voice: {
+  name: string
+  description: string
+  type: 'clone' | 'design'
+  category: string
+  voice_config: Record<string, unknown>
+  preview_audio_base64?: string
+}): Promise<{ success: boolean; id?: string; error?: string }> {
+  if (!supabase) return { success: false, error: 'Supabase not initialized' }
+
+  const { data: userData } = await supabase.auth.getUser()
+  if (!userData.user) return { success: false, error: '请先登录' }
+
+  const voiceId = `sv_${crypto.randomUUID().slice(0, 12)}`
+  const authorName = userData.user.email?.split('@')[0] || 'anonymous'
+
+  let previewUrl = ''
+  if (voice.preview_audio_base64) {
+    const path = `${userData.user.id}/${voiceId}_preview.wav`
+    const { error: uploadError } = await supabase.storage.from('audio').upload(
+      path, decodeBase64(voice.preview_audio_base64), { contentType: 'audio/wav', upsert: true }
+    )
+    if (!uploadError) {
+      const { data: urlData } = supabase.storage.from('audio').getPublicUrl(path)
+      previewUrl = urlData?.publicUrl || ''
+    }
+  }
+
+  const { error } = await supabase.from('shared_voices').insert({
+    id: voiceId,
+    author_id: userData.user.id,
+    author_name: authorName,
+    name: voice.name,
+    description: voice.description,
+    type: voice.type,
+    category: voice.category,
+    voice_config: voice.voice_config,
+    preview_audio_url: previewUrl,
+  })
+
+  if (error) return { success: false, error: error.message }
+  return { success: true, id: voiceId }
+}
+
+export async function likeVoice(voiceId: string): Promise<boolean> {
+  if (!supabase) return false
+  // Use RPC for atomic increment (create this function in Supabase)
+  const { error } = await supabase.rpc('increment_likes', { voice_id: voiceId })
+  if (error) {
+    // Fallback: direct update
+    const { data } = await supabase.from('shared_voices').select('likes').eq('id', voiceId).single()
+    if (data) {
+      await supabase.from('shared_voices').update({ likes: (data.likes || 0) + 1 }).eq('id', voiceId)
+    }
+  }
+  return true
+}
+
+export async function deleteSharedVoice(voiceId: string): Promise<boolean> {
+  if (!supabase) return false
+  const { error } = await supabase.from('shared_voices').delete().eq('id', voiceId)
+  return !error
+}
+
 // === Helpers ===
 
 function decodeBase64(base64: string): Uint8Array {

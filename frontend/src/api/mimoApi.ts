@@ -170,15 +170,37 @@ export async function voiceDesign(
 
 export async function synthesizeAndSave(req: TTSRequest): Promise<TTSResponse> {
   try {
-    const result = await tts(req)
+    let result: { audio: string; format: string }
+    let modelUsed = req.model || 'mimo-v2.5-tts'
+
+    if (req.voice_type === 'clone' && req.voice) {
+      // Load the clone voice's audio from storage
+      const { getVoices } = await import('../db/database')
+      const voices = await getVoices()
+      const voice = voices.find((v: any) => v.id === req.voice && v.type === 'clone')
+      if (!voice?.audio_path) throw new Error('克隆音色未找到或缺少音频')
+      const { getAudioDataUrl } = await import('../storage/audioStorage')
+      const ext = voice.audio_path.split('.').pop() || 'wav'
+      const dataUrl = await getAudioDataUrl(voice.audio_path, ext)
+      const audioBase64 = dataUrl.split(',')[1] || dataUrl
+      result = await voiceClone(req.text, audioBase64, ext, req.format || 'wav', req.emotion)
+      modelUsed = 'mimo-v2.5-tts-voiceclone'
+    } else if (req.voice_type === 'design' && req.voice) {
+      // Load the design voice's description from storage
+      const { getVoices } = await import('../db/database')
+      const voices = await getVoices()
+      const voice = voices.find((v: any) => v.id === req.voice && v.type === 'design')
+      const description = voice?.description || req.voice_description || '标准音色'
+      result = await voiceDesign({ description, text: req.text, format: req.format })
+      modelUsed = 'mimo-v2.5-tts-voicedesign'
+    } else {
+      result = await tts(req)
+    }
+
     let audioBase64 = result.audio
     let saveFormat = result.format
-    // API always returns WAV — if user wanted PCM, strip WAV header; if WAV, keep as-is
     if (req.format === 'pcm' || req.format === 'pcm16') {
-      // Save as WAV (playable format) since PCM can't be played directly
       saveFormat = 'wav'
-      // If the API returned WAV data, it's already playable — no conversion needed
-      // The pcmToWavBase64 conversion is kept as fallback for legacy PCM data
       if (result.format === 'pcm') {
         audioBase64 = pcmToWavBase64(result.audio)
       }
@@ -186,7 +208,7 @@ export async function synthesizeAndSave(req: TTSRequest): Promise<TTSResponse> {
     const genId = `gen_${crypto.randomUUID().slice(0, 12)}`
     const audioPath = await saveAudio(audioBase64, saveFormat, genId)
     const { insertGeneration } = await import('../db/database')
-    await insertGeneration(genId, req.model || 'mimo-v2.5-tts', req.voice || 'mimo_default', req.text, audioPath, saveFormat, req.speed || 1.0, req.emotion || null)
+    await insertGeneration(genId, modelUsed, req.voice || 'mimo_default', req.text, audioPath, saveFormat, req.speed || 1.0, req.emotion || null)
     return { success: true, data: { audio: audioBase64, format: saveFormat, generation_id: genId } }
   } catch (e: any) {
     return { success: false, error: { code: 'TTS_ERROR', message: e.message } }

@@ -20,6 +20,7 @@ export default function VoiceDesign() {
   const [loading, setLoading] = useState(false)
   const [audioSrc, setAudioSrc] = useState('')
   const [error, setError] = useState('')
+  const [savedVoiceName, setSavedVoiceName] = useState('')
 
   const { addTask, updateTask } = useTasks()
 
@@ -44,6 +45,22 @@ export default function VoiceDesign() {
         const audioUrl = `data:audio/${resp.data.format};base64,${resp.data.audio}`
         setAudioSrc(audioUrl)
         updateTask(taskId, { status: 'completed' })
+
+        // Auto-save the designed voice to the voices table
+        try {
+          const { saveVoice } = await import('../db/database')
+          const { saveAudio } = await import('../storage/audioStorage')
+          const voiceId = `voice_${crypto.randomUUID().slice(0, 12)}`
+          const voiceName = description.trim().slice(0, 20)
+          const audioPath = await saveAudio(resp.data.audio, resp.data.format, voiceId)
+          await saveVoice(voiceId, voiceName, 'design', voiceId, description.trim(), audioPath)
+          setSavedVoiceName(voiceName)
+          const { scheduleBackgroundSync } = await import('../db/sync')
+          scheduleBackgroundSync()
+        } catch (saveErr) {
+          console.error('Auto-save voice failed:', saveErr)
+          // Don't show error to user — synthesis succeeded
+        }
       } else {
         setError('生成失败')
         updateTask(taskId, { status: 'failed' })
@@ -116,6 +133,11 @@ export default function VoiceDesign() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
           <div className="flex items-center justify-between mb-3">
             <span className="text-sm font-medium text-gray-700">生成结果</span>
+            {savedVoiceName && (
+              <span className="text-[11px] text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">
+                已保存到「我的音色」: {savedVoiceName}
+              </span>
+            )}
           </div>
           <WaveformPlayer audioSrc={audioSrc} showDownload downloadFilename={`design_output.${format}`} />
         </div>

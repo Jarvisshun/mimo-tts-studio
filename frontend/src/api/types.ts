@@ -5,6 +5,8 @@ export interface TTSRequest {
   format?: string
   speed?: number
   emotion?: string
+  voice_type?: 'clone' | 'design'
+  voice_description?: string
 }
 
 export interface TTSResponse {

@@ -12,7 +12,7 @@ import threading
 import httpx
 import time
 
-from routers import tts, clone, design, batch, voices, history, config as config_router
+from routers import tts, clone, design, batch, voices, history, config as config_router, marketplace
 from models.database import init_db
 from utils.config import AUDIO_STORE_PATH
 
@@ -87,6 +87,7 @@ app.include_router(batch.router, prefix="/api/batch", tags=["Batch"])
 app.include_router(voices.router, prefix="/api/voices", tags=["Voices"])
 app.include_router(history.router, prefix="/api/history", tags=["History"])
 app.include_router(config_router.router, prefix="/api/config", tags=["Config"])
+app.include_router(marketplace.router, prefix="/api/marketplace", tags=["Marketplace"])
 
 audio_dir = AUDIO_STORE_PATH
 os.makedirs(audio_dir, exist_ok=True)
@@ -98,15 +99,18 @@ async def get_preset_voices():
     return {
         "success": True,
         "data": [
-            {"id": "mimo_default", "name": "默认", "style": "标准音色"},
-            {"id": "冰糖", "name": "冰糖", "style": "甜美女声"},
-            {"id": "茉莉", "name": "茉莉", "style": "温柔女声"},
-            {"id": "苏打", "name": "苏打", "style": "活泼女声"},
-            {"id": "白桦", "name": "白桦", "style": "沉稳男声"},
-            {"id": "Mia", "name": "Mia", "style": "英文女声"},
-            {"id": "Chloe", "name": "Chloe", "style": "英文女声"},
-            {"id": "Milo", "name": "Milo", "style": "英文男声"},
-            {"id": "Dean", "name": "Dean", "style": "英文男声"},
+            # 中文女声
+            {"id": "mimo_default", "name": "默认", "style": "标准音色", "category": "zh-female"},
+            {"id": "冰糖", "name": "冰糖", "style": "甜美女声", "category": "zh-female"},
+            {"id": "茉莉", "name": "茉莉", "style": "温柔女声", "category": "zh-female"},
+            {"id": "苏打", "name": "苏打", "style": "活泼女声", "category": "zh-female"},
+            # 中文男声
+            {"id": "白桦", "name": "白桦", "style": "沉稳男声", "category": "zh-male"},
+            # 英文女声
+            {"id": "Mia", "name": "Mia", "style": "英文女声", "category": "en-female"},
+            # 英文男声
+            {"id": "Milo", "name": "Milo", "style": "英文男声", "category": "en-male"},
+            {"id": "Dean", "name": "Dean", "style": "英文男声", "category": "en-male"},
         ],
     }
 

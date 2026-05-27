@@ -200,19 +200,121 @@ export async function getPresets() {
     return {
       success: true,
       data: [
-        { id: 'mimo_default', name: '默认', style: '标准音色' },
-        { id: '冰糖', name: '冰糖', style: '甜美女声' },
-        { id: '茉莉', name: '茉莉', style: '温柔女声' },
-        { id: '苏打', name: '苏打', style: '活泼女声' },
-        { id: '白桦', name: '白桦', style: '沉稳男声' },
-        { id: 'Mia', name: 'Mia', style: '英文女声' },
-        { id: 'Chloe', name: 'Chloe', style: '英文女声' },
-        { id: 'Milo', name: 'Milo', style: '英文男声' },
-        { id: 'Dean', name: 'Dean', style: '英文男声' },
+        { id: 'mimo_default', name: '默认', style: '标准音色', category: 'zh-female' },
+        { id: '冰糖', name: '冰糖', style: '甜美女声', category: 'zh-female' },
+        { id: '茉莉', name: '茉莉', style: '温柔女声', category: 'zh-female' },
+        { id: '苏打', name: '苏打', style: '活泼女声', category: 'zh-female' },
+        { id: '白桦', name: '白桦', style: '沉稳男声', category: 'zh-male' },
+        { id: 'Mia', name: 'Mia', style: '英文女声', category: 'en-female' },
+        { id: 'Milo', name: 'Milo', style: '英文男声', category: 'en-male' },
+        { id: 'Dean', name: 'Dean', style: '英文男声', category: 'en-male' },
       ],
     }
   }
-  return request<{ success: boolean; data: Array<{ id: string; name: string; style: string }> }>('/voices/presets')
+  return request<{ success: boolean; data: Array<{ id: string; name: string; style: string; category?: string }> }>('/voices/presets')
+}
+
+export interface UserVoice {
+  id: string
+  name: string
+  type: 'clone' | 'design'
+  voice_id: string
+  description: string
+  audio_path: string
+}
+
+export async function getUserVoices(): Promise<UserVoice[]> {
+  if (await useLocalDb()) {
+    const d = await getDb()
+    return d.getVoices()
+  }
+  try {
+    const resp = await request<{ success: boolean; data: UserVoice[] }>('/voices')
+    return resp.data || []
+  } catch {
+    return []
+  }
+}
+
+// Provider-specific voice fetching
+export interface ProviderVoice {
+  id: string
+  name: string
+  style: string
+  provider: string
+}
+
+const PROVIDER_VOICE_LISTS: Record<string, ProviderVoice[]> = {}
+
+export async function getProviderVoices(): Promise<ProviderVoice[]> {
+  if (await useLocalDb()) {
+    const providers = await (await getDb()).getProviders()
+    const allVoices: ProviderVoice[] = []
+    for (const p of providers) {
+      // Check if provider has a cached voice list
+      const cached = PROVIDER_VOICE_LISTS[p.id]
+      if (cached) {
+        allVoices.push(...cached)
+        continue
+      }
+      // For known providers, try to fetch their voice lists
+      const voices = await fetchProviderVoiceList(p)
+      if (voices.length > 0) {
+        PROVIDER_VOICE_LISTS[p.id] = voices
+        allVoices.push(...voices)
+      }
+    }
+    return allVoices
+  }
+  return []
+}
+
+async function fetchProviderVoiceList(provider: any): Promise<ProviderVoice[]> {
+  const apiBase: string = provider.api_base || ''
+  const apiKey: string = provider.api_key || ''
+
+  // MiMo provider — return hardcoded presets (already handled elsewhere)
+  if (apiBase.includes('xiaomimimo.com')) {
+    return []
+  }
+
+  // Volcengine (火山引擎) TTS
+  if (apiBase.includes('volcengine')) {
+    try {
+      const resp = await fetch(`${apiBase}/ListVoice`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      })
+      if (resp.ok) {
+        const data = await resp.json()
+        return (data.voices || []).map((v: any) => ({
+          id: v.voice_type || v.id,
+          name: v.voice_name || v.name || v.voice_type,
+          style: v.style_list?.join(', ') || '',
+          provider: provider.name,
+        }))
+      }
+    } catch {}
+  }
+
+  // Fish Audio
+  if (apiBase.includes('fish.audio')) {
+    try {
+      const resp = await fetch(`${apiBase}/model`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      })
+      if (resp.ok) {
+        const data = await resp.json()
+        return (data || []).map((v: any) => ({
+          id: v.id || v._id,
+          name: v.title || v.name,
+          style: v.description || '',
+          provider: provider.name,
+        }))
+      }
+    } catch {}
+  }
+
+  return []
 }
 
 export async function getModels() {
